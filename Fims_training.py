@@ -4,7 +4,6 @@ import pandas as pd
 import sys,csv
 import datetime
 
-
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import Normalizer
@@ -12,7 +11,6 @@ from sklearn.preprocessing import MaxAbsScaler
 
 from keras.layers import Dense, Dropout, Activation,LeakyReLU,PReLU
 from sklearn import preprocessing
-#from keras.layers.advanced_activations import PReLU, LeakyReLU
 from keras.models import Sequential
 from keras.optimizers import SGD,Adam,RMSprop
 from keras.utils import np_utils
@@ -25,173 +23,84 @@ from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 from math import  log
 
-
-
 dt = datetime.datetime.now()
 dt = dt.strftime("%m%d%H%M%S")
 
-# data train loading
-data_set_train = pd.read_csv('./dataset/train_log_lb_final.csv',header=None)
+##### 1. loading files #####
+# training data loading
+data_set_train = pd.read_csv('./dataset/train_log.csv',header=None)
 data_set_train = pd.DataFrame(data_set_train)
-data_set_train = data_set_train.values[1:]
+data_set_train = data_set_train.values[:]
 
-
-# data test loading
-data_set_test = pd.read_csv('./dataset/test_log_lb_final.csv',header=None)
+# test data loading (log scale)
+data_set_test = pd.read_csv('./dataset/test_log_all.csv',header=None)
 data_set_test = pd.DataFrame(data_set_test)
-data_set_test = data_set_test.values[1:]
+data_set_test = data_set_test.values[:]
 
-#data observed loading
-obj_set_test = pd.read_csv('./dataset/f_g_union.csv',header=None)
-obj_set_test = pd.DataFrame(obj_set_test)
-obj_set_test = obj_set_test.values[1:]
+# test data loading (raw)
+data_set_test_raw = pd.read_csv('./dataset/test_raw_all.csv',header=None)
+data_set_test_raw = pd.DataFrame(data_set_test_raw)
+data_set_test_raw = data_set_test_raw.values[:]
 
+##### 2. data set #####
+all_train = data_set_train[:,1:9]
+all_test = data_set_test[:,1:9]
 
-# data set 
+# define variable types
+all_train = all_train.astype('float32')
+all_test = all_test.astype('float32')
 
-X_train = data_set_train[:,2:9]
-y_train= data_set_train[:,1]
-
-X_test = data_set_test[:,2:9]
-y_galex = data_set_test[:,9]
-
-obs_galex = obj_set_test[:,1]
-obs_fims = obj_set_test[:,0]
-
-X_train = X_train.astype('float32')
-X_test = X_test.astype('float32')
-y_train = y_train.astype('float32')
-y_galex = y_galex.astype('float32')
-obs_galex = obs_galex.astype('float32')
-obs_fims = obs_fims.astype('float32')
-
-# # normalization
+##### 3. normalization #####
 scaler = StandardScaler()
-scaler_train = scaler.fit(X_train)
-X_train = scaler_train.fit_transform(X_train)
+scaler.fit(all_train)
+scaled_all_train = scaler.transform(all_train)
+scaled_x_train = scaled_all_train[:,1:8]	# seven input parameters
+scaled_y_train = scaled_all_train[:,0]		# target parameter (FIMS observation)
 
-scaler_test = scaler.fit(X_test)
-X_test = scaler_test.transform(X_test)
+# application of nomalization to the test set
+scaled_all_test = scaler.transform(all_test)
+scaled_x_test = scaled_all_test[:,1:8]		# seven input parameters
 
-# model
+##### 4. modeling #####
+# three layers: tanh + relu + relu
 model = Sequential()
 model.add(Dense(16, kernel_initializer='RandomUniform', activation='tanh', input_shape=(7,)))
-model.add(Dropout(0.3))
+model.add(Dropout(0.03))
 model.add(Dense(16, kernel_initializer='uniform', activation='relu'))
-model.add(Dropout(0.3))
+model.add(Dropout(0.03))
 model.add(Dense(16, activation='relu'))
 model.add(Dropout(0.05))
 model.add(Dense(1))
 
-
-
-
-# model compile 
-model.compile(  loss='mean_squared_error',    optimizer=RMSprop(lr=0.0001),   metrics=[metrics.mae])
+# model compile: loass function = mean squared error
+model.compile(loss='mean_squared_error', optimizer=RMSprop(lr=0.0001), metrics=[metrics.mae])
 
 # training
-history = model.fit(X_train, y_train,epochs=20)
+history = model.fit(scaled_x_train, scaled_y_train, epochs=1000)
 
-# # result 1 : accuracy of training
+##### 5. plottng result #####
+# accuracy of training
 plt.figure(1)
 plt.title('training accuracy')
 plt.plot(history.history['mean_absolute_error'])
-#score = model.evaluate(X_test, y_test)
 plt.xlabel("Epoch")
 plt.ylabel("Loss")
 plt.show()
 
-
-# training
-y_pred = model.predict(X_test)
-
-
-# # # return output value before scaling and result save
-# inv_pred = np.zeros(shape=(len(y_pred), 5) )
-# inv_pred[:,0] = y_pred[:,0]
-# #inv_pred[:,:] = y_test[:,:]
-# y_pred = scaler_test.inverse_transform(inv_pred)[:,0]
-
+##### 6. inverse transformation #####
+scaled_y_pred = model.predict(scaled_x_test)
+scaled_all_test[:,0] = list(scaled_y_pred.flatten())
+all_pred = scaler.inverse_transform(scaled_all_test)
+y_pred = all_pred[:,0]
 y_pred = list(y_pred.flatten())
 
-
-
-#galex_final = galex_final
-#
-#
-# for i in range(len(y_galex)):
-#
-#     if str(y_galex[i]) == 'nan':
-#         continue
-#     else:
-#         y_pred_final.append(y_pred[i])
-#         galex_final.append(float(y_galex[i]))
-
+##### 7. converting log-scale into continuum unit #####
 y_pred = np.exp(y_pred)/1000
-#result = open('./dataset/result/result_{}.csv'.format(dt), 'w', encoding="utf-8")
-result = open('./dataset/result/result_mk.csv', 'w', encoding="utf-8")
+
+##### 8. saving result #####
+result = open('./dataset/result.csv', 'w', encoding="utf-8")
+# data order: pixel_number + fims_observation + fims_prediction + gal_lon + gal_lat + rass1 + rass2 + H_alpha + E(B-V) + N(HI) + galex_oservation
 for i in range(len(y_pred)):
-    result.write(str(y_pred[i]) + ',' + str(y_galex[i]) + '\n')
+	result.write(str(data_set_test[i,0]) +',' +str(data_set_test_raw[i,1]) +',' +str(y_pred[i]) + ',' + str(data_set_test[i,2]) + ',' + str(data_set_test[i,3])+ ',' + str(data_set_test_raw[i,4]) +
+	',' + str(data_set_test_raw[i,5]) + ',' + str(data_set_test_raw[i,6])+ ',' + str(data_set_test_raw[i,7]) + ',' + str(data_set_test_raw[i,8]) +','  + str(data_set_test[i,9]) + '\n')
 result.close()
-
-# y_pred_final = np.exp(y_pred)
-# galex_final = np.array(galex_final) *(1e-3)
-
-#
-# xmin = min(y_pred)
-# xmax = max(y_pred)
-# ymin = min(float(y_galex))
-# ymax = max(float(y_galex))
-
-#x_range = np.arange(0.0, 10000.0, len(y_pred))
-#
-# temp = pd.read_csv('./dataset/f_g_union.csv',header=None)
-# temp = pd.DataFrame(temp)
-# temp = temp.values[1:]
-#
-
-def fitFunc(x,a,b,c):
-    return a*np.power(x,b)+c
-
-pred_fitParams,pred_fitCovariance = curve_fit(fitFunc,y_pred,y_galex)
-print("predicted parameter",pred_fitParams)
-print("predicted covariance", pred_fitCovariance)
-pred_sigma = [pred_fitCovariance[0,0],pred_fitCovariance[1,1],pred_fitCovariance[2,2]]
-
-obs_fitParams,obs_fitCovariance = curve_fit(fitFunc,obs_fims,obs_galex)
-print("observed parameter",obs_fitParams)
-print("observed covariance", obs_fitCovariance)
-obs_sigma = [obs_fitCovariance[0,0],obs_fitCovariance[1,1],obs_fitCovariance[2,2]]
-
-
-
-x = np.arange(0,max(y_pred))
-# # result 2 : true vs predict
-plt.figure(2)
-plt.title('Objected vs predict')
-#plt.scatter(y_pred,y_galex)
-plt.scatter(obs_fims,obs_galex,marker ='+',color='red',s=3)
-plt.scatter(y_pred,y_galex,marker ='x',color='blue',s=3)
-#plt.plot(x,x)
-plt.xlabel("Predicted FIMS")
-plt.ylabel("GALEX")
-plt.yscale('log')
-plt.xscale('log')
-# plt.plot(obs_fims,fitFunc(obs_fims,*obs_fitParams),'r-',label ="({0:.3f}*x**{1:.3f}) + {2:.3f}".format(*obs_fitParams))
-# plt.plot(y_pred,fitFunc(y_pred,*pred_fitParams),'b-',label ="({0:.3f}*x**{1:.3f}) + {2:.3f}".format(*pred_fitParams))
-plt.plot(obs_fims,fitFunc(obs_fims,*obs_fitParams),'r-',label ="({0:.3f}*x**{1:.3f}+ {2:.3f}),R:{0:2f} ".format(*obs_fitParams,*obs_fitCovariance))
-plt.plot(y_pred,fitFunc(y_pred,*pred_fitParams),'b-',label ="({0:.3f}*x**{1:.3f}+ {2:.3f}),R:{0:2f} ".format(*pred_fitParams,*pred_fitCovariance))
-plt.legend(loc='lower right')
-plt.show()
-plt.savefig('./dataset/result/scatter_mk.png'.format(dt))
-plt.close()
-
-
-
-loss = []
-
-for i in range(len(y_pred)):
-      loss.append(abs(float(y_pred[i]) - float(y_galex[i])) )
-
-print('error = ', sum(loss) / len(y_pred))
-
